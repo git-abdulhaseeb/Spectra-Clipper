@@ -14,7 +14,7 @@ const EnvSchema = z.object({
   MAX_CONCURRENT_JOBS: z.coerce.number().min(1).max(4).default(1),
   MAX_QUEUE_DEPTH: z.coerce.number().min(1).max(20).default(3),
   MAX_CLIP_DURATION_SEC: z.coerce.number().min(5).max(600).default(300),
-  MIN_FREE_DISK_MB: z.coerce.number().default(1500),
+  MIN_FREE_DISK_MB: z.coerce.number().default(process.env.VERCEL ? 100 : 1500),
   FFMPEG_PATH: z.string().optional(),
   YTDLP_PATH: z.string().optional(),
 });
