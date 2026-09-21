@@ -13,31 +13,40 @@ import { executeJob } from './pipeline/jobRunner';
 import { Janitor } from './pipeline/janitor';
 import { extractor } from './extractor/ytdlpExtractor';
 
+export const app = express();
+
+// Basic security and parsing middlewares
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  exposedHeaders: ['Content-Disposition']
+}));
+app.use(express.json({ limit: '2mb' }));
+
+// Global rate limiter
+const globalLimiter = createRateLimiter({ windowMs: 60000, max: 120 });
+app.use(globalLimiter);
+
+// Health and observability route (unauthenticated for uptime monitors)
+app.use('/health', healthRoute);
+
+// Protected application routes
+app.use('/v1/jobs', authenticateToken, jobsRoute);
+app.use('/v1/jobs', authenticateToken, downloadRoute);
+
+// Global error handler
+app.use(errorHandler);
+
+// Register pipeline transcode worker
+jobQueue.registerProcessor(executeJob);
+
+// Serverless / Standalone bootstrap
 async function bootstrap() {
-  const app = express();
-
-  // Basic security and parsing middlewares
-  app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-    exposedHeaders: ['Content-Disposition']
-  }));
-  app.use(express.json({ limit: '2mb' }));
-
-  // Global rate limiter
-  const globalLimiter = createRateLimiter({ windowMs: 60000, max: 120 });
-  app.use(globalLimiter);
-
-  // Health and observability route (unauthenticated for uptime monitors)
-  app.use('/health', healthRoute);
-
-  // Protected application routes
-  app.use('/v1/jobs', authenticateToken, jobsRoute);
-  app.use('/v1/jobs', authenticateToken, downloadRoute);
-
-  // Global error handler
-  app.use(errorHandler);
+  if (process.env.VERCEL) {
+    logger.info('Running in Vercel serverless environment');
+    return;
+  }
 
   // 1. Scrub scratch directory on startup
   Janitor.scrubScratchDirectoryOnBoot();
@@ -45,16 +54,13 @@ async function bootstrap() {
   // 2. Start background periodic cleanup
   Janitor.startPeriodicPurge();
 
-  // 3. Register pipeline transcode worker
-  jobQueue.registerProcessor(executeJob);
-
-  // 4. Pre-flight health check of extractor
+  // 3. Pre-flight health check of extractor
   const extractorHealthy = await extractor.healthCheck();
   if (!extractorHealthy) {
     logger.warn('Warning: yt-dlp health check failed on boot. Ensure python/yt-dlp is installed and accessible.');
   }
 
-  // 5. Start listening
+  // 4. Start listening
   const server = app.listen(config.PORT, () => {
     logger.info({
       port: config.PORT,
@@ -72,7 +78,6 @@ async function bootstrap() {
       process.exit(0);
     });
 
-    // Hard exit after 10s if connections remain stuck
     setTimeout(() => {
       logger.error('Forcefully exiting after shutdown timeout');
       process.exit(1);
@@ -83,7 +88,11 @@ async function bootstrap() {
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-bootstrap().catch((err) => {
-  logger.fatal({ err }, 'Fatal error during server bootstrap');
-  process.exit(1);
-});
+if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
+  bootstrap().catch((err) => {
+    logger.fatal({ err }, 'Fatal error during server bootstrap');
+    process.exit(1);
+  });
+}
+
+export default app;
