@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
@@ -9,7 +10,7 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().default(3000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   API_TOKEN: z.string().min(8, 'API_TOKEN must be at least 8 characters long').default('clipper-private-secret-key-2026'),
-  SCRATCH_DIR: z.string().default(process.env.VERCEL ? '/tmp/scratch' : './scratch'),
+  SCRATCH_DIR: z.string().default('./scratch'),
   MAX_CONCURRENT_JOBS: z.coerce.number().min(1).max(4).default(1),
   MAX_QUEUE_DEPTH: z.coerce.number().min(1).max(20).default(3),
   MAX_CLIP_DURATION_SEC: z.coerce.number().min(5).max(600).default(300),
@@ -26,8 +27,11 @@ if (!parsed.success) {
 
 const rawConfig = parsed.data;
 
-// Resolve scratch directory to absolute path
-const scratchDir = path.resolve(rawConfig.SCRATCH_DIR);
+// Resolve scratch directory to absolute path (always use /tmp in serverless)
+const scratchDir = process.env.VERCEL
+  ? path.join(os.tmpdir(), 'scratch')
+  : path.resolve(rawConfig.SCRATCH_DIR);
+
 try {
   if (!fs.existsSync(scratchDir)) {
     fs.mkdirSync(scratchDir, { recursive: true });
