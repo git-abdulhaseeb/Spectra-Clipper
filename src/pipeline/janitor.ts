@@ -6,6 +6,12 @@ import { logger } from '../utils/logger';
 
 export class Janitor {
   public static async assertSufficientDiskSpace(): Promise<void> {
+    const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.VERCEL_ENV);
+    if (isServerless) {
+      // In serverless environments (e.g. Vercel Lambda with ~512MB /tmp), bypass the 1500MB host limit
+      return;
+    }
+
     try {
       const disk = await checkDiskSpace(config.SCRATCH_DIR);
       const freeMb = Math.floor(disk.free / (1024 * 1024));
